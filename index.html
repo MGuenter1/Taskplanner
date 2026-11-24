@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wochenplaner Aufgaben</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: header with date + KW, family bar, quick-add bar, date filter chips, then a three-column board (Offen / In Arbeit / Fertig) that stacks on phones */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --col: #e9edf3;
+  --fg: #18202b;
+  --muted: #5f6b7a;
+  --line: #dde2ea;
+  --accent: #2f5bd3;
+  --accent-soft: #e4ebfc;
+  --hi: #c2410c; --hi-soft: #fdeadf;
+  --mid: #a16207; --mid-soft: #fbf1d6;
+  --lo: #4b7a5a; --lo-soft: #e3f0e6;
+  --vi: #7c3aed; --vi-soft: #efe7fd;
+  --te: #0f766e; --te-soft: #dcf3f0;
+  --late: #b4232f;
+  --s-open: #64748b; --s-doing: #2f5bd3; --s-done: #4b7a5a;
+  --shadow: 0 10px 28px rgba(20, 30, 50, 0.18);
+  --f-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --f-body: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11151c; --surface: #1c2430; --col: #161c25; --fg: #e6eaf0; --muted: #94a0b1; --line: #2a3340;
+  --accent: #7c9cff; --accent-soft: #23304d;
+  --hi: #fb923c; --hi-soft: #3b2418; --mid: #facc15; --mid-soft: #352d14; --lo: #86c99a; --lo-soft: #1e3326;
+  --vi: #c4a5ff; --vi-soft: #2e2445; --te: #5eead4; --te-soft: #173532;
+  --late: #f87171; --s-open: #94a3b8; --s-doing: #7c9cff; --s-done: #86c99a;
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.5); color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #1c2430; --col: #161c25; --fg: #e6eaf0; --muted: #94a0b1; --line: #2a3340;
+  --accent: #7c9cff; --accent-soft: #23304d;
+  --hi: #fb923c; --hi-soft: #3b2418; --mid: #facc15; --mid-soft: #352d14; --lo: #86c99a; --lo-soft: #1e3326;
+  --vi: #c4a5ff; --vi-soft: #2e2445; --te: #5eead4; --te-soft: #173532;
+  --late: #f87171; --s-open: #94a3b8; --s-doing: #7c9cff; --s-done: #86c99a;
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.5); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: 2rem; line-height: 1.1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.today { color: var(--muted); margin-top: 4px; }
+.kw { font-family: var(--f-mono); font-size: 0.8rem; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 4px; }
+.head-right { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
+.stats { display: flex; gap: 20px; font-variant-numeric: tabular-nums; }
+.stat { text-align: right; }
+.stat b { display: block; font-family: var(--f-display); font-size: 1.5rem; line-height: 1; }
+.stat span { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.stat.late b { color: var(--late); }
+.theme-btn { font: inherit; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.theme-btn:hover { border-color: var(--muted); }
+.theme-btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+
+/* family bar */
+.family { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.fam-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fam-label { font-family: var(--f-display); font-weight: 600; font-size: 0.9rem; }
+.members { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.member { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; background: var(--col); font-size: 0.85rem; max-width: 100%; }
+.member .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member .cnt { font-family: var(--f-mono); font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.member .tag { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.member button { font: inherit; font-size: 0.75rem; border: 0; background: transparent; color: var(--accent); cursor: pointer; padding: 0 2px; border-radius: 3px; }
+.member button.rm { color: var(--muted); }
+.member button.rm:hover { color: var(--late); }
+.member input { font: inherit; font-size: 0.85rem; color: var(--fg); background: var(--surface); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 6px; width: 9rem; }
+.link-btn { font: inherit; font-size: 0.82rem; border: 0; background: transparent; color: var(--accent); cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.invite { font-size: 0.85rem; color: var(--muted); background: var(--col); border-radius: 8px; padding: 10px 12px; margin: 0; }
+.invite ol { margin: 4px 0 0; padding-left: 20px; }
+.invite b { color: var(--fg); font-weight: 600; }
+.av { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 0.66rem; font-weight: 600; flex: none; letter-spacing: 0; }
+.av.c0 { background: var(--accent-soft); color: var(--accent); }
+.av.c1 { background: var(--hi-soft); color: var(--hi); }
+.av.c2 { background: var(--lo-soft); color: var(--lo); }
+.av.c3 { background: var(--vi-soft); color: var(--vi); }
+.av.c4 { background: var(--te-soft); color: var(--te); }
+.av.c5 { background: var(--mid-soft); color: var(--mid); }
+.av.none { background: transparent; border: 1px dashed var(--muted); color: var(--muted); }
+.readonly-note { font-size: 0.85rem; color: var(--fg); background: var(--mid-soft); border-radius: 8px; padding: 8px 12px; margin: 0; }
+.warn-note { font-size: 0.88rem; color: var(--fg); background: var(--hi-soft); border: 1px solid var(--late); border-radius: 8px; padding: 10px 14px; margin: 0; }
+.readonly-note b, .warn-note b { display: block; }
+
+form#add {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px;
+  display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; align-items: center;
+}
+form#add input, form#add select, .edit-input {
+  font: inherit; color: var(--fg); background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 8px 10px; min-width: 0;
+}
+#f-title { font-size: 1rem; }
+#f-due, #f-prio, #f-who { border-color: var(--line); font-size: 0.9rem; }
+#f-who { max-width: 11rem; }
+input:focus-visible, select:focus-visible, button:focus-visible, .grip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn { font: inherit; font-weight: 600; border: 0; border-radius: 6px; padding: 8px 16px; cursor: pointer; background: var(--accent); color: var(--surface); }
+.btn:hover { filter: brightness(1.08); }
+@media (max-width: 720px) {
+  form#add { grid-template-columns: 1fr 1fr; }
+  #f-title { grid-column: 1 / -1; }
+  #f-who { max-width: none; }
+  form#add .btn { grid-column: 1 / -1; }
+  .stats { gap: 14px; }
+}
+
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip-btn { font: inherit; font-size: 0.85rem; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.chip-btn[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.chip-btn .n { font-variant-numeric: tabular-nums; opacity: 0.7; margin-left: 4px; }
+.hint { font-size: 0.8rem; color: var(--muted); margin: 0; }
+
+/* board */
+.board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+@media (max-width: 820px) { .board { grid-template-columns: minmax(0, 1fr); } }
+.column {
+  background: var(--col); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px;
+  min-height: 180px; border: 2px solid transparent; transition: border-color 0.12s, background 0.12s;
+}
+.column.over { border-color: var(--accent); background: var(--accent-soft); }
+.col-head { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
+.col-head h2 { font-family: var(--f-display); font-size: 0.95rem; font-weight: 600; margin: 0; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.column[data-status="open"] .dot { background: var(--s-open); }
+.column[data-status="doing"] .dot { background: var(--s-doing); }
+.column[data-status="done"] .dot { background: var(--s-done); }
+.col-count { margin-left: auto; font-family: var(--f-mono); font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cards { display: flex; flex-direction: column; gap: 8px; min-height: 40px; }
+.col-empty { font-size: 0.85rem; color: var(--muted); text-align: center; padding: 18px 8px; border: 1px dashed var(--line); border-radius: 8px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 10px 10px 4px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 6px; align-items: start;
+}
+.card.dragging { opacity: 0.35; }
+.card.late { box-shadow: inset 3px 0 0 var(--late); }
+.card.confirming { border-color: var(--late); }
+.grip {
+  grid-row: 1 / span 2; align-self: stretch; width: 22px; display: grid; place-items: center; cursor: grab;
+  color: var(--muted); border-radius: 4px; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.grip:hover { background: var(--col); color: var(--fg); }
+.grip svg { width: 10px; height: 16px; fill: currentColor; }
+.title { min-width: 0; overflow-wrap: anywhere; cursor: text; padding-top: 1px; }
+.card[data-status="done"] .title { color: var(--muted); text-decoration: line-through; }
+.meta { grid-column: 2 / -1; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.due { font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+.due.late { color: var(--late); }
+.prio { font: inherit; font-size: 0.72rem; font-weight: 600; border: 0; border-radius: 4px; padding: 1px 7px; cursor: pointer; white-space: nowrap; }
+.prio.p1 { color: var(--hi); background: var(--hi-soft); }
+.prio.p2 { color: var(--mid); background: var(--mid-soft); }
+.prio.p3 { color: var(--lo); background: var(--lo-soft); }
+.who { display: inline-flex; align-items: center; gap: 4px; position: relative; }
+.who .av { width: 20px; height: 20px; font-size: 0.6rem; }
+.assignee { font: inherit; font-size: 0.74rem; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; max-width: 8.5rem; cursor: pointer; }
+.del { grid-column: 3; grid-row: 1; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+.del:hover { color: var(--late); background: var(--hi-soft); }
+.edit-input { width: 100%; border-color: var(--accent); padding: 3px 8px; }
+
+/* delete confirmation */
+.confirm { grid-column: 1 / -1; margin: 6px 0 0 6px; padding: 8px 10px; border-radius: 6px; background: var(--hi-soft); display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.confirm p { margin: 0; font-size: 0.85rem; color: var(--fg); }
+.confirm p small { display: block; color: var(--muted); font-size: 0.78rem; }
+.confirm .actions { display: flex; gap: 6px; }
+.btn-danger { font: inherit; font-size: 0.82rem; font-weight: 600; border: 0; border-radius: 6px; padding: 4px 12px; cursor: pointer; background: var(--late); color: var(--surface); }
+.btn-danger:hover { filter: brightness(1.08); }
+.btn-ghost { font: inherit; font-size: 0.82rem; border: 1px solid var(--line); border-radius: 6px; padding: 3px 12px; cursor: pointer; background: var(--surface); color: var(--fg); }
+
+/* comments */
+.c-toggle { font: inherit; font-size: 0.72rem; font-weight: 500; border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 4px; padding: 0 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.c-toggle svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.c-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.c-toggle:hover { color: var(--fg); }
+.comments { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.created { font-size: 0.75rem; color: var(--muted); margin: 0; }
+.c-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.c-item { background: var(--col); border-radius: 6px; padding: 6px 8px; }
+.c-head { display: flex; align-items: center; gap: 6px; }
+.c-author { font-size: 0.78rem; font-weight: 600; }
+.c-time { font-family: var(--f-mono); font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.c-head .c-del { margin-left: auto; }
+.c-text { margin: 2px 0 0; font-size: 0.88rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.c-del { font: inherit; font-size: 0.72rem; border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0 2px; border-radius: 3px; }
+.c-del:hover { color: var(--late); }
+.c-none { font-size: 0.82rem; color: var(--muted); margin: 0; }
+.c-form { display: flex; flex-direction: column; gap: 6px; }
+.c-form textarea { font: inherit; font-size: 0.88rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; resize: vertical; min-height: 54px; width: 100%; }
+.c-form textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.c-form .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.c-form .kbd { font-size: 0.72rem; color: var(--muted); }
+.c-form .btn { padding: 4px 12px; font-size: 0.82rem; }
+
+/* read-only viewers */
+body.readonly form#add, body.readonly .grip, body.readonly .del, body.readonly .c-form, body.readonly .c-del, body.readonly .hint { display: none; }
+body.readonly .card { padding-left: 10px; grid-template-columns: minmax(0, 1fr) auto; }
+body.readonly .meta, body.readonly .comments { grid-column: 1 / -1; }
+body.readonly .prio, body.readonly .assignee { pointer-events: none; }
+
+.ghost {
+  position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none; margin: 0;
+  box-shadow: var(--shadow); transform-origin: 20px 20px; rotate: 1.5deg;
+}
+body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+
+/* login (Supabase) */
+.login { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; max-width: 520px; margin: 24px auto 0; display: flex; flex-direction: column; gap: 10px; }
+.login h2 { font-family: var(--f-display); font-size: 1.2rem; margin: 0; }
+.login p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.login form, .inv-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.login input, .inv-form input, .inv-form select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; flex: 1; min-width: 12rem; }
+.inv-form select { flex: none; min-width: 0; }
+.login .msg { color: var(--fg); }
+body.logged-out form#add, body.logged-out .toolbar, body.logged-out #board, body.logged-out .stats, body.logged-out .family { display: none; }
+.inv-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.inv-list li { display: flex; gap: 8px; align-items: center; }
+.inv-list .c-del { margin-left: auto; }
+
+.status { text-align: center; color: var(--muted); padding: 32px 16px; border: 1px dashed var(--line); border-radius: 10px; }
+.note { font-size: 0.8rem; color: var(--muted); text-align: center; margin: 0; }
+@media (prefers-reduced-motion: reduce) { .column { transition: none; } .ghost { rotate: 0deg; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Aufgaben</h1>
+      <div class="today"><span id="today"></span> · <span class="kw" id="kw"></span></div>
+    </div>
+    <div class="head-right">
+      <div class="stats" aria-label="Übersicht">
+        <div class="stat late"><b id="s-late">0</b><span>Überfällig</span></div>
+        <div class="stat"><b id="s-today">0</b><span>Heute fällig</span></div>
+        <div class="stat"><b id="s-mine">0</b><span>Für mich</span></div>
+      </div>
+      <button type="button" class="theme-btn" id="theme-btn"></button>
+      <button type="button" class="theme-btn" id="logout-btn" hidden>Abmelden</button>
+    </div>
+  </header>
+
+  <section class="login" id="login" hidden>
+    <h2>Anmelden</h2>
+    <p>Gib deine E-Mail-Adresse ein. Du bekommst einen Link, mit dem du dich ohne Passwort anmeldest.</p>
+    <form id="login-form">
+      <input id="login-email" type="email" required placeholder="name@example.de" autocomplete="email" aria-label="E-Mail-Adresse">
+      <button class="btn" type="submit">Anmeldelink senden</button>
+    </form>
+    <p class="msg" id="login-msg" role="status"></p>
+  </section>
+
+  <section class="family" id="family" aria-label="Familie" hidden>
+    <div class="fam-row">
+      <span class="fam-label">Familie</span>
+      <div class="members" id="members"></div>
+      <button type="button" class="link-btn" id="invite-btn" aria-expanded="false">Jemanden einladen</button>
+    </div>
+    <div class="invite" id="invite-sb" hidden></div>
+    <div class="invite" id="invite" hidden>
+      So kommen weitere Familienmitglieder dazu:
+      <ol>
+        <li>Oben rechts auf <b>Teilen</b> klicken.</li>
+        <li>Die E-Mail-Adresse eingeben und als Berechtigung <b>Bearbeiten</b> wählen. Den Link einfach weiterzugeben reicht nicht: Über „Jeder mit dem Link“ kann man nur lesen.</li>
+        <li>Die Person meldet sich mit ihrem Claude-Konto an und öffnet den Link. Danach erscheint sie hier und kann Aufgaben anlegen.</li>
+      </ol>
+      Wer nur Leserechte hat, sieht das Board, kann aber nichts ändern. Den Zugriff entziehst du ebenfalls im Teilen-Menü.
+    </div>
+  </section>
+
+  <p class="readonly-note" id="readonly-note" hidden><b>Du kannst dieses Board nur ansehen.</b> Über „Jeder mit dem Link“ gibt es nur Leserechte. Bitte die Person, die das Board geteilt hat, dich im Teilen-Menü per E-Mail mit der Berechtigung „Bearbeiten“ einzuladen. Danach die Seite neu laden.</p>
+
+  <p class="warn-note" id="local-note" role="alert" hidden><b>Nicht mit dem gemeinsamen Board verbunden.</b> Was du hier einträgst, wird nur in diesem Browser gespeichert. Die anderen sehen es nicht, und du siehst ihre Aufgaben nicht. Melde dich bei claude.ai an und lass dich vom Besitzer im Teilen-Menü per E-Mail mit „Bearbeiten“ einladen. Danach die Seite neu laden.</p>
+
+  <form id="add" autocomplete="off">
+    <input id="f-title" placeholder="Neue Aufgabe, z. B. Müll rausbringen" maxlength="200" aria-label="Titel der Aufgabe">
+    <input id="f-due" type="date" aria-label="Fällig am">
+    <select id="f-prio" aria-label="Priorität">
+      <option value="1">Hoch</option>
+      <option value="2" selected>Mittel</option>
+      <option value="3">Niedrig</option>
+    </select>
+    <select id="f-who" aria-label="Zuständig"></select>
+    <button class="btn" type="submit">Hinzufügen</button>
+  </form>
+
+  <div class="toolbar">
+    <div class="filters" role="group" aria-label="Filter" id="filters"></div>
+    <p class="hint">Am Griff ⠿ ziehen, um den Status zu ändern. Mit Tastatur: Griff fokussieren, dann ← →.</p>
+  </div>
+
+  <div id="board" class="board">
+    <div class="status" style="grid-column: 1 / -1">Aufgaben werden geladen …</div>
+  </div>
+
+  <p class="note" id="mode"></p>
+</div>
+
+<script>
+(() => {
+  // ---------- Supabase (zentrale Datenbank) ----------
+  // Der "anon"/"publishable" Key ist dafür gedacht, öffentlich im Browser zu stehen.
+  // Den Schutz übernehmen die Zugriffsregeln in supabase/schema.sql.
+  const SUPABASE_URL = "https://jorxasrmacezeugowifg.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_gzAgUzNxQVqvNqE05ccpeg_qowPDOYA"; // Supabase → Project Settings → API Keys → anon / publishable key
+
+  const PRIO = { 1: "Hoch", 2: "Mittel", 3: "Niedrig" };
+  const COLUMNS = [["open", "Offen"], ["doing", "In Arbeit"], ["done", "Fertig"]];
+  const ORDER = COLUMNS.map((c) => c[0]);
+  const $ = (id) => document.getElementById(id);
+
+  let tasks = [];
+  let comments = [];
+  let members = [];          // [{id, nickname, joinedAt, owner}]
+  let filter = "all";
+  let editing = null;
+  let editingNick = false;
+  let confirmDelete = null;
+  let drag = null;
+  let pendingRender = false;
+  let store = { add() {}, update() {}, remove() {}, addComment() {}, removeComment() {}, setNick() {}, removeMember() {} };
+  const openComments = new Set();
+  const drafts = {};
+
+  // identity
+  let userApi = null;
+  let meId = null;
+  let iAmOwner = false;
+  let profiles = {};         // id -> Profile (resolved names, cached)
+  let sbMode = false;        // true = Daten liegen in Supabase
+  let invites = [];          // Supabase: eingeladene, noch nicht angemeldete Personen [{email, role}]
+
+  // ---------- theme toggle (choice remembered in this browser) ----------
+  const root = document.documentElement;
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const SUN = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9 13 13M3 13l1.1-1.1M11.9 4.1 13 3"/></svg>';
+  const MOON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 9.6A5.8 5.8 0 0 1 6.4 2.5a5.8 5.8 0 1 0 7.1 7.1z"/></svg>';
+  const effectiveTheme = () => root.dataset.theme || (mq.matches ? "dark" : "light");
+  function paintThemeBtn() {
+    const dark = effectiveTheme() === "dark";
+    const b = $("theme-btn");
+    b.innerHTML = (dark ? SUN : MOON) + `<span>${dark ? "Hell" : "Dunkel"}</span>`;
+    b.setAttribute("aria-label", dark ? "Zu hellem Layout wechseln" : "Zu dunklem Layout wechseln");
+  }
+  try { const saved = localStorage.getItem("aufgaben.theme"); if (saved === "light" || saved === "dark") root.dataset.theme = saved; } catch {}
+  $("theme-btn").onclick = () => {
+    const next = effectiveTheme() === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    try { localStorage.setItem("aufgaben.theme", next); } catch {}
+    paintThemeBtn();
+  };
+  mq.addEventListener?.("change", paintThemeBtn);
+  new MutationObserver(paintThemeBtn).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+  paintThemeBtn();
+
+  $("invite-btn").onclick = () => {
+    const box = sbMode ? $("invite-sb") : $("invite"); box.hidden = !box.hidden;
+    $("invite-btn").setAttribute("aria-expanded", String(!box.hidden));
+  };
+
+  // ---------- dates ----------
+  const pad = (n) => String(n).padStart(2, "0");
+  const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const parse = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const now = new Date();
+  const todayIso = iso(now);
+  const dow = (now.getDay() + 6) % 7;
+  const weekEndIso = iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() + (6 - dow)));
+  function isoWeek(d) {
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil(((t - y0) / 86400000 + 1) / 7);
+  }
+  const fmtDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+  const fmtStamp = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const stamp = (ms) => fmtStamp.format(new Date(ms)) + " Uhr";
+  $("today").textContent = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(now);
+  $("kw").textContent = "KW " + isoWeek(now);
+
+  const statusOf = (t) => (ORDER.includes(t.status) ? t.status : t.done ? "done" : "open");
+  const isLate = (t) => statusOf(t) !== "done" && t.due && t.due < todayIso;
+  const commentsFor = (id) => comments.filter((c) => c.taskId === id).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  // ---------- people ----------
+  const memberById = (id) => members.find((m) => m.id === id);
+  function nameOf(id) {
+    if (!id) return "";
+    const m = memberById(id);
+    return (m && m.nickname) || profiles[id]?.name || "Familienmitglied";
+  }
+  function colorIdx(id) { let h = 0; for (const ch of id || "") h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 6; }
+  function initials(name) {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    return ((parts[0]?.[0] || "?") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+  }
+  function avatar(id) {
+    const s = document.createElement("span");
+    if (!id) { s.className = "av none"; s.textContent = "–"; return s; }
+    s.className = "av c" + colorIdx(id);
+    s.textContent = initials(nameOf(id));
+    s.setAttribute("aria-hidden", "true");
+    return s;
+  }
+  // Ask the platform for names of any ids we haven't resolved yet, then redraw once.
+  function resolvePeople() {
+    if (!userApi) return;
+    const ids = new Set();
+    members.forEach((m) => ids.add(m.id));
+    tasks.forEach((t) => { if (t.assignee) ids.add(t.assignee); if (t.createdBy) ids.add(t.createdBy); });
+    comments.forEach((c) => { if (c.author) ids.add(c.author); });
+    const missing = [...ids].filter((id) => !(id in profiles));
+    if (!missing.length) return;
+    missing.forEach((id) => { profiles[id] = profiles[id] || { name: "" }; });
+    userApi.profiles([...ids]).then((ps) => { profiles = { ...profiles, ...ps }; refresh(); });
+  }
+  function memberOptions(select, current, emptyLabel) {
+    select.replaceChildren();
+    const none = document.createElement("option"); none.value = ""; none.textContent = emptyLabel; select.append(none);
+    const list = [...members].sort((a, b) => (b.id === meId) - (a.id === meId) || nameOf(a.id).localeCompare(nameOf(b.id), "de"));
+    if (current && !memberById(current)) list.push({ id: current });
+    for (const m of list) {
+      const o = document.createElement("option"); o.value = m.id;
+      o.textContent = m.id === meId ? nameOf(m.id) + " (ich)" : nameOf(m.id);
+      select.append(o);
+    }
+    select.value = current || "";
+  }
+
+  // Don't rebuild the board while someone is typing, choosing or dragging; render once they're done.
+  const busy = () => editing || editingNick || drag || document.activeElement?.matches?.(".c-input, .assignee, #f-who, #inv-email, #inv-role");
+  function refresh() { if (busy()) pendingRender = true; else render(); }
+  document.addEventListener("focusout", () => setTimeout(() => { if (pendingRender && !busy()) { pendingRender = false; render(); } }));
+
+  const FILTERS = [
+    ["all", "Alle", () => true],
+    ["mine", "Für mich", (t) => meId && t.assignee === meId],
+    ["late", "Überfällig", (t) => isLate(t)],
+    ["today", "Bis heute", (t) => t.due && t.due <= todayIso],
+    ["week", "Diese Woche", (t) => t.due && t.due <= weekEndIso],
+    ["nobody", "Nicht zugewiesen", (t) => !t.assignee && statusOf(t) !== "done"],
+  ];
+
+  // ---------- render ----------
+  function render() {
+    resolvePeople();
+    const active = tasks.filter((t) => statusOf(t) !== "done");
+    $("s-late").textContent = active.filter(isLate).length;
+    $("s-today").textContent = active.filter((t) => t.due === todayIso).length;
+    $("s-mine").textContent = meId ? active.filter((t) => t.assignee === meId).length : "–";
+
+    renderFamily();
+    if (document.activeElement !== $("f-who")) memberOptions($("f-who"), $("f-who").value || "", "Niemand zuständig");
+
+    const filters = FILTERS.filter(([k]) => k !== "mine" && k !== "nobody" || members.length);
+    if (!filters.some((f) => f[0] === filter)) filter = "all";
+    $("filters").replaceChildren(...filters.map(([key, label, fn]) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip-btn"; b.id = "filter-" + key;
+      b.setAttribute("aria-pressed", String(filter === key));
+      b.textContent = label;
+      const n = document.createElement("span"); n.className = "n"; n.textContent = tasks.filter(fn).length;
+      b.append(n);
+      b.onclick = () => { filter = key; render(); };
+      return b;
+    }));
+
+    const fn = FILTERS.find((f) => f[0] === filter)[2];
+    const shown = tasks.filter(fn);
+    $("board").replaceChildren(...COLUMNS.map(([key, label]) => {
+      const items = shown.filter((t) => statusOf(t) === key);
+      if (key === "done") items.sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+      else items.sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999") || a.prio - b.prio || (a.createdAt || 0) - (b.createdAt || 0));
+
+      const col = document.createElement("section");
+      col.className = "column"; col.dataset.status = key; col.setAttribute("aria-label", label);
+      const head = document.createElement("div"); head.className = "col-head";
+      const dot = document.createElement("span"); dot.className = "dot";
+      const h = document.createElement("h2"); h.textContent = label;
+      const c = document.createElement("span"); c.className = "col-count"; c.textContent = items.length;
+      head.append(dot, h, c);
+      const cards = document.createElement("div"); cards.className = "cards";
+      if (items.length) items.forEach((t) => cards.append(card(t)));
+      else {
+        const e = document.createElement("div"); e.className = "col-empty";
+        e.textContent = !tasks.length && key === "open" ? "Noch keine Aufgaben. Leg oben die erste an."
+          : key === "doing" ? "Zieh eine Aufgabe hierher, wenn du sie anfängst."
+          : key === "done" ? "Fertige Aufgaben hierher ziehen."
+          : "Keine offenen Aufgaben in dieser Ansicht.";
+        cards.append(e);
+      }
+      col.append(head, cards);
+      return col;
+    }));
+  }
+
+  function renderFamily() {
+    if (!meId) { $("family").hidden = true; return; }
+    $("family").hidden = false;
+    if (sbMode) renderInvites();
+    const list = [...members].sort((a, b) => (b.id === meId) - (a.id === meId) || (a.joinedAt || 0) - (b.joinedAt || 0));
+    $("members").replaceChildren(...list.map((m) => {
+      const chip = document.createElement("span"); chip.className = "member";
+      chip.append(avatar(m.id));
+      if (m.id === meId && editingNick) {
+        const inp = document.createElement("input"); inp.id = "nick-input"; inp.maxLength = 40;
+        inp.value = m.nickname || profiles[m.id]?.name || ""; inp.placeholder = "Dein Name";
+        inp.setAttribute("aria-label", "Dein Anzeigename");
+        const done = (ok) => {
+          if (!editingNick) return;
+          editingNick = false;
+          const v = inp.value.trim();
+          if (ok && v !== (m.nickname || "")) store.setNick(v); else render();
+        };
+        inp.onkeydown = (e) => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); };
+        inp.onblur = () => done(true);
+        chip.append(inp);
+        setTimeout(() => { inp.focus(); inp.select(); });
+      } else {
+        const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = nameOf(m.id);
+        chip.append(nm);
+      }
+      const open = tasks.filter((t) => t.assignee === m.id && statusOf(t) !== "done").length;
+      const cnt = document.createElement("span"); cnt.className = "cnt"; cnt.textContent = open;
+      cnt.title = open === 1 ? "1 offene Aufgabe" : `${open} offene Aufgaben`;
+      chip.append(cnt);
+      if (m.owner) { const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = "Besitzer"; chip.append(tag); }
+      if (m.id === meId && !editingNick && !document.body.classList.contains("readonly")) {
+        const b = document.createElement("button"); b.type = "button"; b.textContent = "Name ändern";
+        b.onclick = () => { editingNick = true; render(); };
+        chip.append(b);
+      }
+      if (iAmOwner && m.id !== meId) {
+        const rm = document.createElement("button"); rm.type = "button"; rm.className = "rm"; rm.textContent = "×";
+        rm.title = sbMode ? "Zugriff entziehen" : "Aus der Liste entfernen (der Zugriff selbst wird im Teilen-Menü entzogen)";
+        rm.setAttribute("aria-label", nameOf(m.id) + (sbMode ? ": Zugriff entziehen" : " aus der Liste entfernen"));
+        rm.onclick = () => {
+          if (sbMode && !confirm(nameOf(m.id) + " den Zugriff auf das Board entziehen?")) return;
+          store.removeMember(m.id);
+        };
+        chip.append(rm);
+      }
+      return chip;
+    }));
+  }
+
+  // Supabase: Einladungen verwalten (nur der Besitzer), alle anderen sehen einen Hinweis.
+  function renderInvites() {
+    const box = $("invite-sb");
+    if (!iAmOwner) {
+      box.replaceChildren("Neue Personen lädt der Besitzer des Boards ein. Danach melden sie sich hier mit ihrer E-Mail-Adresse an.");
+      return;
+    }
+    const intro = document.createElement("p"); intro.style.margin = "0 0 8px";
+    intro.textContent = "E-Mail-Adresse eintragen. Die Person öffnet danach diese Seite und meldet sich mit genau dieser Adresse an.";
+    const form = document.createElement("form"); form.className = "inv-form";
+    const email = document.createElement("input"); email.type = "email"; email.required = true; email.id = "inv-email";
+    email.placeholder = "name@example.de"; email.setAttribute("aria-label", "E-Mail-Adresse der neuen Person");
+    const role = document.createElement("select"); role.id = "inv-role"; role.setAttribute("aria-label", "Berechtigung");
+    for (const [v, l] of [["editor", "Bearbeiten"], ["viewer", "Nur lesen"]]) { const o = document.createElement("option"); o.value = v; o.textContent = l; role.append(o); }
+    const b = document.createElement("button"); b.type = "submit"; b.className = "btn"; b.textContent = "Einladen";
+    form.append(email, role, b);
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const v = email.value.trim().toLowerCase();
+      if (!v) return;
+      email.value = "";
+      email.blur();
+      store.invite(v, role.value);
+    };
+    box.replaceChildren(intro, form);
+    if (invites.length) {
+      const ul = document.createElement("ul"); ul.className = "inv-list";
+      for (const inv of invites) {
+        const li = document.createElement("li");
+        const s = document.createElement("span"); s.textContent = `${inv.email} · ${inv.role === "viewer" ? "Nur lesen" : "Bearbeiten"} · noch nicht angemeldet`;
+        const x = document.createElement("button"); x.type = "button"; x.className = "c-del"; x.textContent = "Zurückziehen";
+        x.setAttribute("aria-label", "Einladung für " + inv.email + " zurückziehen");
+        x.onclick = () => store.uninvite(inv.email);
+        li.append(s, x); ul.append(li);
+      }
+      box.append(ul);
+    }
+  }
+
+  const GRIP = '<svg viewBox="0 0 10 16" aria-hidden="true"><circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/><circle cx="2" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="2" cy="14" r="1.5"/><circle cx="8" cy="14" r="1.5"/></svg>';
+
+  function card(t) {
+    const st = statusOf(t);
+    const el = document.createElement("article");
+    el.className = "card" + (isLate(t) ? " late" : "");
+    el.dataset.id = t.id; el.dataset.status = st;
+
+    const grip = document.createElement("div");
+    grip.className = "grip"; grip.innerHTML = GRIP; grip.tabIndex = 0;
+    grip.setAttribute("role", "button");
+    grip.setAttribute("aria-label", `Verschieben: ${t.title}. Status ${COLUMNS.find((c) => c[0] === st)[1]}. Pfeil links oder rechts ändert den Status.`);
+    grip.addEventListener("pointerdown", (e) => startDrag(e, t, el));
+    grip.addEventListener("keydown", (e) => {
+      const i = ORDER.indexOf(st);
+      const next = e.key === "ArrowRight" ? ORDER[i + 1] : e.key === "ArrowLeft" ? ORDER[i - 1] : null;
+      if (!next) return;
+      e.preventDefault();
+      setStatus(t.id, next);
+      requestAnimationFrame(() => document.querySelector(`.card[data-id="${CSS.escape(t.id)}"] .grip`)?.focus());
+    });
+
+    let title;
+    if (editing === t.id) {
+      title = document.createElement("input"); title.className = "edit-input"; title.value = t.title; title.id = "edit-" + t.id;
+      title.setAttribute("aria-label", "Titel bearbeiten");
+      const finish = (ok) => {
+        if (editing !== t.id) return;
+        editing = null;
+        const v = title.value.trim();
+        if (ok && v && v !== t.title) save(t.id, { title: v }); else render();
+      };
+      title.onkeydown = (e) => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); };
+      title.onblur = () => finish(true);
+      setTimeout(() => { title.focus(); title.select(); });
+    } else {
+      title = document.createElement("span"); title.className = "title"; title.textContent = t.title;
+      if (!document.body.classList.contains("readonly")) {
+        title.tabIndex = 0; title.title = "Zum Bearbeiten anklicken";
+        const start = () => { editing = t.id; render(); };
+        title.onclick = start; title.onkeydown = (e) => { if (e.key === "Enter") start(); };
+      }
+    }
+
+    const del = document.createElement("button"); del.type = "button"; del.className = "del";
+    del.textContent = "×"; del.setAttribute("aria-label", "Löschen: " + t.title);
+    del.onclick = () => {
+      confirmDelete = t.id; render();
+      requestAnimationFrame(() => document.getElementById("cancel-" + t.id)?.focus());
+    };
+
+    const meta = document.createElement("div"); meta.className = "meta";
+    const p = document.createElement("button"); p.type = "button"; p.className = "prio p" + t.prio;
+    p.textContent = PRIO[t.prio]; p.title = "Priorität wechseln";
+    p.onclick = () => save(t.id, { prio: (t.prio % 3) + 1 });
+    meta.append(p);
+    if (t.due) {
+      const d = document.createElement("span");
+      d.className = "due" + (isLate(t) ? " late" : "");
+      d.textContent = (t.due === todayIso ? "Heute · " : "") + fmtDay.format(parse(t.due));
+      meta.append(d);
+    }
+    if (members.length) {
+      const who = document.createElement("span"); who.className = "who";
+      const sel = document.createElement("select"); sel.className = "assignee"; sel.id = "who-" + t.id;
+      sel.setAttribute("aria-label", "Zuständig für " + t.title);
+      memberOptions(sel, t.assignee || "", "Niemand");
+      sel.onchange = () => save(t.id, { assignee: sel.value });
+      who.append(avatar(t.assignee), sel);
+      meta.append(who);
+    }
+
+    const list = commentsFor(t.id);
+    const isOpen = openComments.has(t.id);
+    const ct = document.createElement("button"); ct.type = "button"; ct.className = "c-toggle";
+    ct.setAttribute("aria-expanded", String(isOpen));
+    ct.setAttribute("aria-label", `${list.length} Kommentare ${isOpen ? "ausblenden" : "anzeigen"}`);
+    ct.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>';
+    ct.append(document.createTextNode(String(list.length)));
+    ct.onclick = () => {
+      if (isOpen) openComments.delete(t.id); else openComments.add(t.id);
+      render();
+      if (!isOpen) requestAnimationFrame(() => document.getElementById("c-input-" + t.id)?.focus());
+    };
+    meta.append(ct);
+
+    el.append(grip, title, del, meta);
+    if (isOpen) el.append(commentSection(t, list));
+    if (confirmDelete === t.id) { el.classList.add("confirming"); el.append(confirmBar(t, list.length)); }
+    return el;
+  }
+
+  function confirmBar(t, nComments) {
+    const bar = document.createElement("div"); bar.className = "confirm"; bar.setAttribute("role", "alertdialog");
+    bar.setAttribute("aria-label", "Löschen bestätigen");
+    const p = document.createElement("p"); p.textContent = "Diese Aufgabe endgültig löschen?";
+    if (nComments) { const s = document.createElement("small"); s.textContent = nComments === 1 ? "Auch 1 Kommentar wird gelöscht." : `Auch ${nComments} Kommentare werden gelöscht.`; p.append(s); }
+    const actions = document.createElement("div"); actions.className = "actions";
+    const no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost"; no.id = "cancel-" + t.id; no.textContent = "Abbrechen";
+    const yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-danger"; yes.id = "confirm-" + t.id; yes.textContent = "Löschen";
+    const cancel = () => { confirmDelete = null; render(); };
+    no.onclick = cancel;
+    yes.onclick = () => { confirmDelete = null; openComments.delete(t.id); store.remove(t.id); };
+    bar.onkeydown = (e) => { if (e.key === "Escape") cancel(); };
+    actions.append(no, yes);
+    bar.append(p, actions);
+    return bar;
+  }
+
+  function commentSection(t, list) {
+    const box = document.createElement("div"); box.className = "comments";
+    if (t.createdBy || t.createdAt) {
+      const cr = document.createElement("p"); cr.className = "created";
+      cr.textContent = "Erstellt" + (t.createdBy ? " von " + nameOf(t.createdBy) : "") + (t.createdAt ? " am " + stamp(t.createdAt) : "");
+      box.append(cr);
+    }
+    if (list.length) {
+      const ul = document.createElement("ul"); ul.className = "c-list";
+      for (const c of list) {
+        const li = document.createElement("li"); li.className = "c-item";
+        const head = document.createElement("div"); head.className = "c-head";
+        if (c.author) {
+          const a = document.createElement("span"); a.className = "c-author"; a.textContent = nameOf(c.author);
+          head.append(avatar(c.author), a);
+        }
+        const time = document.createElement("time"); time.className = "c-time";
+        time.dateTime = new Date(c.createdAt).toISOString();
+        time.textContent = stamp(c.createdAt);
+        const del = document.createElement("button"); del.type = "button"; del.className = "c-del";
+        del.textContent = "Löschen"; del.setAttribute("aria-label", "Kommentar löschen");
+        del.onclick = () => store.removeComment(c.id);
+        head.append(time, del);
+        const p = document.createElement("p"); p.className = "c-text"; p.textContent = c.text;
+        li.append(head, p); ul.append(li);
+      }
+      box.append(ul);
+    } else {
+      const none = document.createElement("p"); none.className = "c-none"; none.textContent = "Noch keine Kommentare.";
+      box.append(none);
+    }
+    const form = document.createElement("form"); form.className = "c-form";
+    const ta = document.createElement("textarea"); ta.className = "c-input"; ta.id = "c-input-" + t.id;
+    ta.placeholder = "Kommentar schreiben …"; ta.maxLength = 2000; ta.rows = 2;
+    ta.setAttribute("aria-label", "Kommentar zu " + t.title);
+    ta.value = drafts[t.id] || "";
+    ta.oninput = () => { drafts[t.id] = ta.value; };
+    ta.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); form.requestSubmit(); } };
+    const row = document.createElement("div"); row.className = "row";
+    const k = document.createElement("span"); k.className = "kbd"; k.textContent = "⌘/Strg + Enter";
+    const b = document.createElement("button"); b.type = "submit"; b.className = "btn"; b.textContent = "Kommentieren";
+    row.append(k, b);
+    form.append(ta, row);
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const text = ta.value.trim();
+      if (!text) { ta.focus(); return; }
+      drafts[t.id] = "";
+      ta.blur();
+      const c = { taskId: t.id, text, createdAt: Date.now() };
+      if (meId) c.author = meId;
+      store.addComment(c);
+      requestAnimationFrame(() => document.getElementById("c-input-" + t.id)?.focus());
+    };
+    box.append(form);
+    return box;
+  }
+
+  // ---------- drag and drop (pointer events: mouse, touch, pen) ----------
+  function startDrag(e, t, el) {
+    if (e.button !== 0 || editing) return;
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    drag = { t, el, ghost: null, dx: e.clientX - rect.left, dy: e.clientY - rect.top, x0: e.clientX, y0: e.clientY, target: null, w: rect.width };
+    const grip = e.currentTarget;
+    grip.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      if (!drag) return;
+      if (!drag.ghost) {
+        if (Math.hypot(ev.clientX - drag.x0, ev.clientY - drag.y0) < 4) return;
+        drag.ghost = el.cloneNode(true);
+        drag.ghost.classList.add("ghost");
+        drag.ghost.style.width = drag.w + "px";
+        document.body.append(drag.ghost);
+        el.classList.add("dragging");
+        document.body.classList.add("is-dragging");
+      }
+      drag.ghost.style.transform = `translate(${ev.clientX - drag.dx}px, ${ev.clientY - drag.dy}px)`;
+      const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".column");
+      if (under !== drag.target) {
+        drag.target?.classList.remove("over");
+        drag.target = under || null;
+        drag.target?.classList.add("over");
+      }
+      const edge = 60, h = window.innerHeight;
+      if (ev.clientY < edge) window.scrollBy(0, -12); else if (ev.clientY > h - edge) window.scrollBy(0, 12);
+    };
+    const end = (ev) => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", end);
+      grip.removeEventListener("pointercancel", end);
+      if (!drag) return;
+      const { ghost, target } = drag;
+      ghost?.remove();
+      target?.classList.remove("over");
+      document.body.classList.remove("is-dragging");
+      el.classList.remove("dragging");
+      const to = ev.type === "pointerup" && ghost && target ? target.dataset.status : null;
+      drag = null;
+      if (to && to !== statusOf(t)) setStatus(t.id, to);
+      else if (pendingRender) { pendingRender = false; render(); }
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+  }
+
+  // ---------- writes ----------
+  function setStatus(id, status) {
+    save(id, { status, done: status === "done", doneAt: status === "done" ? Date.now() : null });
+  }
+  function save(id, patch) {
+    const t = tasks.find((x) => x.id === id);
+    if (t) Object.assign(t, patch);
+    render();
+    store.update(id, patch);
+  }
+
+  $("add").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const title = $("f-title").value.trim();
+    if (!title) { $("f-title").focus(); return; }
+    const task = { title, due: $("f-due").value || "", prio: Number($("f-prio").value), status: "open", done: false, doneAt: null, createdAt: Date.now(), assignee: $("f-who").value || "" };
+    if (meId) task.createdBy = meId;
+    store.add(task);
+    $("f-title").value = ""; $("f-title").focus();
+  });
+
+  // ---------- storage: shared db, local fallback ----------
+  function localStore(reason) {
+    const KEY = "aufgaben.v1", CKEY = "aufgaben.comments.v1";
+    try { tasks = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { tasks = []; }
+    try { comments = JSON.parse(localStorage.getItem(CKEY) || "[]"); } catch { comments = []; }
+    const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(tasks)); localStorage.setItem(CKEY, JSON.stringify(comments)); } catch {} };
+    const newId = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    $("mode").textContent = reason;
+    render();
+    return {
+      add(t) { tasks.push({ id: newId("t"), ...t }); persist(); render(); },
+      update() { persist(); },
+      remove(id) { tasks = tasks.filter((t) => t.id !== id); comments = comments.filter((c) => c.taskId !== id); persist(); render(); },
+      addComment(c) { comments.push({ id: newId("c"), ...c }); persist(); render(); },
+      removeComment(id) { comments = comments.filter((c) => c.id !== id); persist(); render(); },
+      setNick() {}, removeMember() {},
+    };
+  }
+
+  function setReadonly(html) {
+    document.body.classList.add("readonly");
+    if (html) $("readonly-note").innerHTML = html;
+    $("readonly-note").hidden = false;
+    render();
+  }
+
+  // ---------- storage: Supabase ----------
+  async function supabaseBoard() {
+    sbMode = true;
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const logout = $("logout-btn");
+    logout.onclick = async () => { await sb.auth.signOut(); location.reload(); };
+
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) {
+      document.body.classList.add("logged-out");
+      $("login").hidden = false;
+      $("mode").textContent = "";
+      $("login-form").onsubmit = async (e) => {
+        e.preventDefault();
+        const email = $("login-email").value.trim().toLowerCase();
+        $("login-msg").textContent = "Wird gesendet …";
+        const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+        $("login-msg").textContent = error
+          ? "Das hat nicht geklappt: " + error.message
+          : `Wir haben einen Anmeldelink an ${email} geschickt. Öffne ihn auf diesem Gerät.`;
+      };
+      return;
+    }
+
+    meId = session.user.id;
+    logout.hidden = false;
+    logout.title = "Angemeldet als " + session.user.email;
+    const joined = await sb.rpc("join_board");
+    if (joined.error) { $("mode").textContent = "Verbindung zur Datenbank fehlgeschlagen: " + joined.error.message; return; }
+    if (!joined.data) {
+      document.body.classList.add("logged-out");
+      const n = $("local-note"); n.hidden = false;
+      n.innerHTML = "<b>Kein Zugriff auf dieses Board.</b> ";
+      n.append(`Die Adresse ${session.user.email} ist nicht eingeladen. Bitte den Besitzer, dich mit dieser Adresse einzuladen, und lade die Seite dann neu. Oder melde dich ab und mit einer anderen Adresse an.`);
+      $("mode").textContent = "";
+      return;
+    }
+    iAmOwner = joined.data === "owner";
+    if (joined.data === "viewer") setReadonly("<b>Du kannst dieses Board nur ansehen.</b> Wenn du mitarbeiten möchtest, bitte den Besitzer, dir die Berechtigung „Bearbeiten“ zu geben.");
+
+    const ms = (v) => (v ? Date.parse(v) : null);
+    const isoTs = (v) => (v ? new Date(v).toISOString() : null);
+    const fromTask = (r) => ({
+      id: r.id, title: r.title, due: r.due || "", prio: r.prio, status: r.status, done: r.status === "done",
+      doneAt: ms(r.done_at), assignee: r.assignee || "", createdBy: r.created_by || "", createdAt: ms(r.created_at),
+    });
+    const toTask = (p) => {
+      const o = {};
+      if ("title" in p) o.title = p.title;
+      if ("due" in p) o.due = p.due || null;
+      if ("prio" in p) o.prio = p.prio;
+      if ("status" in p) o.status = p.status;
+      if ("doneAt" in p) o.done_at = isoTs(p.doneAt);
+      if ("assignee" in p) o.assignee = p.assignee || null;
+      return o;
+    };
+
+    let loaded = false;
+    async function load() {
+      const [t, c, m] = await Promise.all([
+        sb.from("tasks").select("*"), sb.from("comments").select("*"), sb.from("members").select("*"),
+      ]);
+      const err = t.error || c.error || m.error;
+      if (err) { $("mode").textContent = "Laden fehlgeschlagen: " + err.message; return; }
+      tasks = t.data.map(fromTask);
+      comments = c.data.map((r) => ({ id: r.id, taskId: r.task_id, text: r.text, author: r.author || "", createdAt: ms(r.created_at) }));
+      members = m.data.filter((r) => r.user_id).map((r) => ({ id: r.user_id, nickname: r.nickname, joinedAt: ms(r.joined_at), owner: r.role === "owner", role: r.role }));
+      invites = m.data.filter((r) => !r.user_id).sort((a, b) => a.email.localeCompare(b.email));
+      for (const r of m.data) if (r.user_id) profiles[r.user_id] = { name: r.email.split("@")[0] };
+      if (!loaded) { loaded = true; clearTimeout(timer); }
+      $("mode").textContent = "Gespeichert und für alle synchronisiert.";
+      refresh();
+    }
+    let reloadTimer;
+    const reload = () => { clearTimeout(reloadTimer); reloadTimer = setTimeout(load, 150); };
+    const timer = setTimeout(() => { $("mode").textContent = "Server antwortet noch nicht. Die Anzeige ist evtl. nicht aktuell."; }, 10000);
+
+    const fail = (e) => {
+      $("mode").textContent = e?.code === "42501" ? "Dafür fehlt dir die Berechtigung."
+        : e?.code === "23505" ? "Diese E-Mail-Adresse ist schon eingeladen oder Mitglied."
+        : "Speichern fehlgeschlagen: " + (e?.message || "unbekannter Fehler");
+      reload();
+    };
+    const run = (q) => q.then(({ error }) => { if (error) fail(error); else reload(); });
+
+    store = {
+      add(t) { run(sb.from("tasks").insert({ title: t.title, due: t.due || null, prio: t.prio, status: t.status, assignee: t.assignee || null })); },
+      update(id, patch) { run(sb.from("tasks").update(toTask(patch)).eq("id", id)); },
+      remove(id) {
+        tasks = tasks.filter((t) => t.id !== id); comments = comments.filter((c) => c.taskId !== id); render();
+        run(sb.from("tasks").delete().eq("id", id)); // Kommentare werden in der Datenbank mitgelöscht
+      },
+      addComment(c) {
+        comments.push({ id: "tmp-" + Date.now(), ...c }); render();
+        run(sb.from("comments").insert({ task_id: c.taskId, text: c.text }));
+      },
+      removeComment(id) { comments = comments.filter((c) => c.id !== id); render(); run(sb.from("comments").delete().eq("id", id)); },
+      setNick(nickname) {
+        const m = memberById(meId); if (m) m.nickname = nickname;
+        render();
+        run(sb.rpc("set_nickname", { n: nickname }));
+      },
+      removeMember(id) { members = members.filter((m) => m.id !== id); render(); run(sb.from("members").delete().eq("user_id", id)); },
+      invite(email, role) {
+        if (invites.some((i) => i.email === email)) { $("mode").textContent = email + " ist schon eingeladen."; return; }
+        invites.push({ email, role }); render();
+        run(sb.from("members").insert({ email, role }));
+      },
+      uninvite(email) { invites = invites.filter((i) => i.email !== email); render(); run(sb.from("members").delete().eq("email", email)); },
+    };
+
+    // Live-Abgleich: bei jeder Änderung durch irgendwen neu laden.
+    sb.realtime.setAuth(session.access_token);
+    sb.channel("board")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "members" }, reload)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") load();
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") $("mode").textContent = "Live-Abgleich unterbrochen. Änderungen anderer erscheinen erst nach dem Neuladen.";
+      });
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reload(); });
+    load();
+  }
+
+  (async () => {
+    const [db, user] = window.claude?.use
+      ? await Promise.all([window.claude.use("db").catch(() => null), window.claude.use("user").catch(() => null)])
+      : [null, null];
+    if (!db && SUPABASE_KEY && window.supabase) {
+      try { await supabaseBoard(); } catch (e) { $("mode").textContent = "Verbindung zur Datenbank fehlgeschlagen: " + e.message; }
+      return;
+    }
+    if (!db) {
+      $("local-note").hidden = false;
+      if (!window.claude) $("local-note").innerHTML = "<b>Nicht mit der zentralen Datenbank verbunden.</b> Was du hier einträgst, wird nur in diesem Browser gespeichert. Die anderen sehen es nicht.";
+      store = localStore("Nur in diesem Browser gespeichert (nicht mit dem gemeinsamen Board verbunden).");
+      return;
+    }
+
+    if (user) {
+      userApi = user;
+      const me = await user.me();
+      meId = me.id; iAmOwner = me.isOwner;
+      if ((await user.can("data.write")) === false) setReadonly();
+    }
+
+    const col = db.collection("tasks");
+    const ccol = db.collection("comments");
+    const mcol = db.collection("members");
+    const timer = setTimeout(() => { $("mode").textContent = "Server antwortet noch nicht. Die Anzeige ist evtl. nicht aktuell."; }, 10000);
+    const fail = (e) => {
+      if (e?.code === "invalid_argument") { $("mode").textContent = "Du hast nur Leserechte für dieses Board."; setReadonly(); }
+      else $("mode").textContent = "Speichern fehlgeschlagen. Bitte später erneut versuchen.";
+    };
+    store = {
+      add(t) { col.add(t).catch(fail); },
+      update(id, patch) { col.doc(id).update(patch).catch(fail); },
+      async remove(id) {
+        const own = comments.filter((c) => c.taskId === id);
+        tasks = tasks.filter((t) => t.id !== id); comments = comments.filter((c) => c.taskId !== id); render();
+        try { await col.doc(id).delete(); for (const c of own) await ccol.doc(c.id).delete(); } catch (e) { fail(e); }
+      },
+      addComment(c) {
+        const ref = ccol.doc();
+        comments.push({ id: ref.id, ...c }); render();
+        ref.set(c).catch(fail);
+      },
+      removeComment(id) { comments = comments.filter((c) => c.id !== id); render(); ccol.doc(id).delete().catch(fail); },
+      setNick(nickname) {
+        const m = memberById(meId); if (m) m.nickname = nickname;
+        render();
+        mcol.doc(meId).update({ nickname }).catch(fail);
+      },
+      removeMember(id) { members = members.filter((m) => m.id !== id); render(); mcol.doc(id).delete().catch(fail); },
+    };
+    const lost = () => { clearTimeout(timer); $("mode").textContent = "Verbindung zum Board verloren. Bitte Seite neu laden."; };
+
+    col.onSnapshot((snap) => {
+      if (!snap.metadata.fromCache) { clearTimeout(timer); $("mode").textContent = "Gespeichert und für alle Familienmitglieder synchronisiert."; }
+      tasks = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      refresh();
+    }, lost);
+    ccol.onSnapshot((snap) => {
+      comments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      refresh();
+    }, lost);
+
+    // Each person adds themselves to the family list on their first visit (one write, never repeated).
+    let registered = false;
+    mcol.onSnapshot((snap) => {
+      members = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (!registered && !snap.metadata.fromCache && meId && !document.body.classList.contains("readonly")) {
+        registered = true;
+        const mine = memberById(meId);
+        if (!mine) {
+          const doc = { nickname: "", joinedAt: Date.now(), owner: iAmOwner };
+          members.push({ id: meId, ...doc });
+          mcol.doc(meId).set(doc).catch(() => {});
+        } else if (iAmOwner && !mine.owner) {
+          mcol.doc(meId).update({ owner: true }).catch(() => {});
+        }
+      }
+      refresh();
+    }, lost);
+  })();
+})();
+</script>
